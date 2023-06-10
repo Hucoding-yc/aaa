@@ -1,457 +1,420 @@
 <?
- /**
-  * 
-  Name : project Tasks Class 
-  by : YourColor.Net
-  */
-class Tasks {
-    const POST_TYPE = 'tasks';
-    const NOTIFICATION_TYPE = 'notification';
-    const STATUS_PENDING = 'todo';
-    const STATUS_COMPLETED = 'completed';
-    const ASSIGNED_USERS_META_KEY = 'assignees';
+ini_set('memory_limit', '-1');
+class siteparser
+{
+    var $site,
+        $DB,
+        $pID,
+        $count;
 
-    public function createTask($taskData) {
-        if (empty($taskData['title'])) {
-            throw new InvalidArgumentException('Task title is required.');
+    function __construct($site='',$pID)
+    {
+        global $wpdb;
+        $this->DB =  $wpdb;
+        $this->pID =  $pID;
+        $this->site = $site;
+        $charset_collate = $wpdb->get_charset_collate();
+        $querys[] = '
+            CREATE TABLE IF NOT EXISTS Spider_history (
+                id INTEGER PRIMARY KEY AUTO_INCREMENT,
+                date TEXT,
+                errors TEXT,
+                todo TEXT,
+                comment TEXT
+            );
+        ';        
+        $querys[] = '
+            CREATE TABLE IF NOT EXISTS Spider_seo (
+                id INTEGER PRIMARY KEY AUTO_INCREMENT,
+                title TEXT,
+                category TEXT,
+                priority TEXT,
+                description TEXT,
+                tooltip TEXT,
+                status TEXT,
+                message TEXT,
+                data TEXT,
+                fix TEXT
+            );
+        ';
+        $querys[] = '
+            CREATE TABLE IF NOT EXISTS Spider_page (
+                id INTEGER PRIMARY KEY AUTO_INCREMENT,
+                project INTEGER,
+                url TEXT
+            );
+        ';
+        $querys[] = '
+            CREATE TABLE IF NOT EXISTS Spider_code (
+                id INTEGER PRIMARY KEY AUTO_INCREMENT,
+                id_page INTEGER,
+                responce_code TEXT,
+                date TEXT
+            );
+        ';
+
+        $querys[] = '
+            CREATE TABLE IF NOT EXISTS Spider_meta (
+                id INTEGER PRIMARY KEY AUTO_INCREMENT,
+                id_page INTEGER,
+                name TEXT,
+                content TEXT,
+                date TEXT
+            );
+        ';
+        $querys[] = '
+            CREATE TABLE IF NOT EXISTS Spider_link (
+                id INTEGER PRIMARY KEY AUTO_INCREMENT,
+                id_page INTEGER,
+                rel TEXT,
+                href TEXT,
+                full TEXT,
+                date TEXT
+            );
+        ';
+        $querys[] = '
+            CREATE TABLE IF NOT EXISTS Spider_h16 (
+                id INTEGER PRIMARY KEY AUTO_INCREMENT,
+                id_page INTEGER,
+                name TEXT,
+                content TEXT,
+                date TEXT
+            );
+        ';
+        $querys[] = '
+            CREATE TABLE IF NOT EXISTS Spider_source (
+                id INTEGER PRIMARY KEY AUTO_INCREMENT,
+                project_id INTEGER,
+                id_page INTEGER,
+                id_page_source INTEGER,
+                date TEXT
+            );
+        ';
+        $querys[] = '
+            CREATE TABLE IF NOT EXISTS Spider_image (
+                id INTEGER PRIMARY KEY AUTO_INCREMENT,
+                id_page INTEGER,
+                src TEXT,
+                alt TEXT,
+                title TEXT,
+                date TEXT
+            );
+        ';
+        $querys[] = '
+            CREATE TABLE IF NOT EXISTS Spider_errors (
+                id INTEGER PRIMARY KEY AUTO_INCREMENT,
+                id_page INTEGER,
+                error TEXT,
+                date TEXT
+            );
+        ';
+
+        foreach ($querys as $query) {
+            require_once( ABSPATH . 'wp-admin/includes/upgrade.php' );
+            dbDelta( $query ); 
+        };
+        //$this->site = trim($this->$site, '/');
+        $query = 'SELECT COUNT(*) as count FROM Spider_page WHERE url="'.$this->site.'" ';
+        $count = $this->DB->get_results($query)[0]->count;
+        if ($count == 0) {
+            $this->add_url($this->site);
         }
-        $taskData['post_type'] = self::POST_TYPE;
-        $taskData['post_title'] = $taskData['title'];
-        $taskData['post_content'] = $taskData['desc'];
-        $taskData['post_status'] = 'publish';
-        $taskData['post_author'] = get_current_user_id();
-        $taskId = wp_insert_post($taskData);
-
-        if (!$taskId) {
-            throw new RuntimeException('Failed to create task.');
-        }
-        $this->setTaskMeta($taskId, 'created', get_current_user_id() ?? []);
-        $this->setTaskMeta($taskId, 'assignees', $taskData['assignees'] ?? []);
-        $this->setTaskMeta($taskId, 'parent_id', $taskData['parent_id'] ?? 0);
-        $this->setTaskMeta($taskId, 'status', $taskData['status'] ?? self::STATUS_PENDING);
-        $this->setTaskMeta($taskId, 'start_date', $taskData['start_date'] ?? '');
-        $this->setTaskMeta($taskId, 'end_date', $taskData['end_date'] ?? '');
-        $this->setTaskMeta($taskId, 'Priority', $taskData['Priority'] ?? '');
-        $this->setTaskMeta($taskId, 'labels', $taskData['labels'] ?? []);
-        $this->setTaskMeta($taskId, 'task_project', $taskData['task_project'] ?? []);
-        $this->setTaskMeta($taskId, 'mindmap', $taskData['mindmap'] ?? '');
-
-        return $taskId;
+        $this->count = $count;
     }
 
-    public function getTask($taskId) {
-        if (!$taskId) {
-            return false;
+    function do($start, $limit, $date)
+    {
+
+        $i = 0;
+        if ($start == 0) {
+            /* Запишем в историю что начали сканирование */
+            $query = 'SELECT COUNT(*) as count FROM Spider_history WHERE date="'.$date.'";';
+            $count_history = $this->DB->get_results($query);
+            if ($count_history[0]->count == 0) {
+                $resultD = $this->DB->insert('Spider_history',['date'=>$date]);
+            };
+        };
+        $Noton  = 'SELECT id_page FROM Spider_code WHERE Spider_code.date == '.$date.' ';
+        $query = 'SELECT Spider_page.id as id, Spider_page.url as url FROM Spider_page   LIMIT 1 OFFSET '.$start.'';
+        $result = $this->DB->get_results($query);
+        if(!isset($result[0])){
+           $start = 0 ; 
+           $i = 0 ; 
+           $return = 0 ;
+        }else{
+            $row = $result[0];
+            $id = (int)$row->id;
+            $url = $row->url;
+            $res = $this->get_contents($url);
+            if (isset($res['error']) && $res['error'] != '') {
+                $resultD = $this->DB->insert('Spider_errors',['id_page'=>$id,'error'=>$res['error'],'date'=>$date]);
+            } else {
+                if (isset($res['header']['reponse_code']) and $res['header']['reponse_code'] == 200) {
+                    $res2 = $this->parse_page($res['content'], $id);
+                 $seo_isseuse = $this->seo_isseuse($url,$id);
+                    if(!empty($res2)){
+                        $resultD = $this->DB->insert('Spider_meta',['id_page'=>$id,'name'=>'title','content'=>$res2['title'],'date'=>$date]);
+                        foreach ($res2['meta'] as $name=>$content) {
+                            $resultD = $this->DB->insert('Spider_meta',['id_page'=>$id,'name'=>$name,'content'=>$content,'date'=>$date]);
+                        }
+                        $h = 1;
+                        while ($h < 6) {
+                            if (is_array($res2['h'.$h])) {
+                                foreach ($res2['h'.$h] as $hcontent) {
+                                $resultD = $this->DB->insert('Spider_h16',['id_page'=>$id,'name'=>'h'.$h,'content'=>$hcontent,'date'=>$date]);
+                                }
+                            };
+                            $h++;
+                        };
+                       // echo '<p>' . $url . ' (new links: '.count($res2['links']).')</p>';
+                    }
+                }else{
+                    $resultD = $this->DB->insert('Spider_code',['id_page'=>$id,'responce_code'=>$res['header']['reponse_code'],'date'=>$date]);
+                }
+            };
+           $return = $start + 1 ;
         }
-        $taskData = [
-            'id' => $taskId,
-            'title' => get_the_title($taskId),
-            'created_time' => get_the_date('l F j, Y', $taskId),
-            'created_by' => get_post_meta($taskId, 'created', true) ?: '',
-            'desc' => get_post($taskId)->post_content,
-            'assignees' => get_post_meta($taskId, 'assignees', true) ?: [],
-            'start_date' => get_post_meta($taskId, 'start_date', true) ?: get_the_date('l F j, Y', $taskId),
-            'end_date' => get_post_meta($taskId, 'end_date', true) ?: '',
-            'labels' => get_post_meta($taskId, 'labels', true) ?: [],
-            'status' => get_post_meta($taskId, 'status', true) ?: self::STATUS_PENDING,
-            'Priority' => get_post_meta($taskId, 'Priority', true) ?: '4',
-            'mindmap' => get_post_meta($taskId, 'mindmap', true) ?: false,
-            'task_project' => get_post_meta($taskId, 'task_project', true) ?: false,
-        ];
-        return $taskData;
-    }    
-    public function getNextTask($taskId) {
-        $currentUserId = get_current_user_id();
-        $tasks = get_posts(array(
-            'post_type' => self::POST_TYPE,
-            'meta_query' => array(
-                'relation' => 'OR',
-                array(
-                    'key' => 'created',
-                    'value' => $currentUserId,
-                    'compare' => '=',
-                ),
-                array(
-                    'key' => Self::ASSIGNED_USERS_META_KEY,
-                    'value' => $currentUserId,
-                    'compare' => 'in',
-                ),
-            ),
-            'orderby' => 'meta_value',
-            'meta_key' => 'end_date',
-            'order' => 'ASC',
-        ));
-        $currentIndex = array_search($taskId, wp_list_pluck($tasks, 'ID'));
-        if ($currentIndex !== false && isset($tasks[$currentIndex + 1])) {
-            return $this->getTask($tasks[$currentIndex + 1]->ID);
-        }
-        return null;
+        $i++;
+        return $return;
     }
 
-    public function getPrevTask($taskId) {
-        $currentUserId = get_current_user_id();
-        $tasks = get_posts(array(
-            'post_type' => self::POST_TYPE,
-            'meta_query' => array(
-                'relation' => 'OR',
-                array(
-                    'key' => 'created',
-                    'value' => $currentUserId,
-                    'compare' => '=',
-                ),
-                array(
-                    'key' => Self::ASSIGNED_USERS_META_KEY,
-                    'value' => $currentUserId,
-                    'compare' => 'in',
-                ),
-            ),
-            'orderby' => 'meta_value',
-            'meta_key' => 'end_date',
-            'order' => 'ASC',
-        ));
-        $currentIndex = array_search($taskId, wp_list_pluck($tasks, 'ID'));
-        if ($currentIndex !== false && isset($tasks[$currentIndex - 1])) {
-            return $this->getTask($tasks[$currentIndex - 1]->ID);
-        }
-        return null;
-    }
-    public function getTask_by_status($status) {
-        if (!$status) {
-            return false;
-        }
-        $args = [
-		'post_type'=>'tasks','fields'=>'ids','meta_query' => [
-		   [
-		       'key' => 'status',
-		       'value' => $status,
-		       'compare' => '=',
-		   ]
-		]];
-        $tasks = get_posts($args);
-        return $tasks;
-    }  
-    public function getTask_by_Priority($status) {
-        if (!$status) {
-            return false;
-        }
-        $args = [
-        'post_type'=>'tasks','fields'=>'ids','meta_query' => [
-           [
-               'key' => 'Priority',
-               'value' => $status,
-               'compare' => 'In',
-           ]
-        ]];
-        $tasks = get_posts($args);
-        return $tasks;
-    }     
-    public function gettasks() {
-    
-        $args = [
-        'post_type'=>'tasks','fields'=>'ids','posts_per_page'=>-1];
-        $tasks = get_posts($args);
-        return $tasks;
-    }    
-    public function getTask_by_assignees($status) {
-        if (!$status) {
-            return false;
-        }
-        $args = [
-        'post_type'=>'tasks','fields'=>'ids','meta_query' => [
-           [
-               'key' => 'assignees',
-               'value' => $status,
-               'compare' => 'In',
-           ]
-        ]];
-        $tasks = get_posts($args);
-        return $tasks;
-    } 
-    public function getTask_Is_Mindemap() {
+    function getMetaTags($str)
+    {
+        $pattern = '
+      ~<\s*meta\s
 
-        $args = [
-        'post_type'=>'tasks','fields'=>'ids','meta_query' => [
-           [
-               'key' => 'mindmap',
-               'value' => true,
-           ]
-        ]];
-        $tasks = get_posts($args);
-        return $tasks;
+      # using lookahead to capture type to $1
+        (?=[^>]*?
+        \b(?:name|property|http-equiv)\s*=\s*
+        (?|"\s*([^"]*?)\s*"|\'\s*([^\']*?)\s*\'|
+        ([^"\'>]*?)(?=\s*/?\s*>|\s\w+\s*=))
+      )
+
+      # capture content to $2
+      [^>]*?\bcontent\s*=\s*
+        (?|"\s*([^"]*?)\s*"|\'\s*([^\']*?)\s*\'|
+        ([^"\'>]*?)(?=\s*/?\s*>|\s\w+\s*=))
+      [^>]*>
+
+      ~ix';
+
+        if (preg_match_all($pattern, $str, $out))
+            return array_combine($out[1], $out[2]);
+        return array();
     }
-    public function is_user_assigned($task_id, $user_id) {
-        $assigned_users = $this->get_assigned_users($task_id);
-        return in_array($user_id, $assigned_users);
+
+
+    function getMetaLinks($str)
+    {
+        $pattern = '
+      ~<\s*link\s
+
+      # using rel to $1
+        (?=[^>]*?
+        \b(?:rel)\s*=\s*
+        (?|"\s*([^"]*?)\s*"|\'\s*([^\']*?)\s*\'|
+        ([^"\'>]*?)(?=\s*/?\s*>|\s\w+\s*=))
+      )
+
+      # capture href to $2
+      [^>]*?\bhref\s*=\s*
+        (?|"\s*([^"]*?)\s*"|\'\s*([^\']*?)\s*\'|
+        ([^"\'>]*?)(?=\s*/?\s*>|\s\w+\s*=))
+      [^>]*>
+
+      ~ix';
+
+        if (preg_match_all($pattern, $str, $out))
+            return array_combine($out[1], $out[2]);
+        return array();
     }
-    public function get_assigned_users($task_id) {
-      $assigned_users = get_post_meta($task_id, self::ASSIGNED_USERS_META_KEY, true);
-      if (!is_array($assigned_users)) {
-          $assigned_users = array();
-      }
-      return $assigned_users;
-    }
-    public function assign_user_by_id($task_id, $user_id) {
-        $assigned_users = $this->get_assigned_users($task_id);
-        if (!in_array($user_id, $assigned_users)) {
-            $assigned_users[] = $user_id;
+
+    function parse_page($content, $id_page_source)
+    {
+        /* title */
+        $result = [];
+        $matches = [];
+        $res = preg_match("/<title>(.*)<\/title>/siU", $content, $matches);
+        if (!$res) {
+            $result['title'] = '';
         } else {
-            $assigned_users = array_diff($assigned_users, array($user_id));
-        }
-        update_post_meta($task_id, self::ASSIGNED_USERS_META_KEY, $assigned_users);
-        $task = $this->getTask($task_id);
-        $message = 'You have been assigned to a new task: ' . $task['title'];
-        $this->send_notification(array($user_id), $message);
-        return true;
+            $title = preg_replace('/\s+/', ' ', $matches[1]);
+            $title = trim($title);
+            $result['title'] = $title;
+        };
+
+        /* meta tags */
+
+        $meta  = $this->getMetaTags($content);
+        $result['meta'] = $meta;
+
+        $metalink  = $this->getMetaLinks($content);
+        $result['metalink'] = $metalink;
+        /* h1 - h6 */
+
+        $i = 1;
+        while ($i < 6) {
+            $matches = [];
+            $res = preg_match_all('/<h' . $i . '.*>(.*)<\/h' . $i . '>/siU', $content, $matches);
+            $result['h' . $i] = array();
+            if (!$res) {
+            } else {
+                foreach ($matches[1] as $match) {
+                    $h = preg_replace('/\s+/', ' ', $match);
+                    $h = trim(strip_tags($h));
+                    $result['h' . $i][] .= $h;
+                };
+            };
+            $i++;
+        };
+        $result['links'] = array();
+        if (preg_match_all("/<a\s[^>]*href=(\"??)([^\" >]*?)\\1[^>]*>(.*)<\/a>/siU", $content, $matches, PREG_SET_ORDER)) {
+            foreach ($matches as $match) {
+                $url = $this->prepare_url($match[2]);
+                if ($this->add_url($url)) {
+                    $result['links'][] = $url;
+                };
+                $query = 'SELECT id FROM Spider_page WHERE url ="'.$url.'";';
+                $id_page = $this->DB->get_results($query);
+                if (isset($id_page[0])) {
+                    $resultD = $this->DB->insert('Spider_source',['project_id'=>$this->pID,'id_page'=>$id_page[0]->id,'id_page_source'=>$id_page_source,'date'=>'']);
+                }
+                // $match[2] = link address
+                // $match[3] = link text
+            }
+        }        
+        return $result;
     }
-    public function getSubtasks($taskId) {
-        $subtaskArgs = [
-            'post_type' => self::POST_TYPE,
-            'post_parent' => $taskId,
-        ];
-
-        $subtaskPosts = get_posts($subtaskArgs);
-        $subtasks = [];
-
-        foreach ($subtaskPosts as $subtaskPost) {
-            $subtaskData = $this->getTask($subtaskPost->ID);
-            if ($subtaskData) {
-                array_push($subtasks, $subtaskData);
+    function get_contents($url){
+            $result['content'] = $this->file_get_contents($url);
+            $result['header'] = [];
+            $http_response_header = NULL;
+            if (($result['content'] == '') || ($http_response_header === NULL)) {
+                $ch = curl_init();
+                curl_setopt($ch, CURLOPT_URL, $url);
+                curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+                $response = curl_exec($ch);
+                $header_size = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+                $result['content'] = $response;
+                $result['header']['reponse_code'] = curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+            }
+        return $result;
+    }
+    function parseHeaders($headers){
+        $head = array();
+        foreach ($headers as $k => $v) {
+            $t = explode(':', $v, 2);
+            if (isset($t[1]))
+                $head[trim($t[0])] = trim($t[1]);
+            else {
+                $head[] = $v;
+                if (preg_match("#HTTP/[0-9\.]+\s+([0-9]+)#", $v, $out)) {
+                    $head['reponse_code'] = intval($out[1]);
+                }
             }
         }
-
-        return $subtasks;
+        return $head;
     }
 
-    public function createSubtask($subtaskData) {
-        if (empty($subtaskData['task_id']) || !is_int($subtaskData['task_id'])) {
-            throw new InvalidArgumentException('Parent task ID is required.');
-        }
-        if (empty($subtaskData['title'])) {
-            throw new InvalidArgumentException('Subtask title is required.');
-        }
+    function prepare_url($url) {
+        if ($url !== '') {
+            $need_add_site = false;
+            if ((substr($url, 0, 6) != 'https:') &&
+                (substr($url, 0, 5) != 'http:') &&
+                (substr($url, 0, 2) != '//')
+            ) {
+                $need_add_site = true;
+            };
 
-        $subtaskData['post_type'] = self::POST_TYPE;
-        $subtaskData['post_status'] = 'publish';
-        $subtaskData['post_parent'] = $subtaskData['task_id'];
-        $subtaskData['post_author'] = get_current_user_id();
-
-        $subtaskId = wp_insert_post($subtaskData);
-
-        if (!$subtaskId) {
-            throw new RuntimeException('Failed to create subtask.');
-        }
-
-        $this->setTaskMeta($subtaskId, 'assignees', $subtaskData['assignees'] ?? []);
-        $this->setTaskMeta($subtaskId, 'start_date', $subtaskData['startDate'] ?? '');
-        $this->setTaskMeta($subtaskId, 'end_date', $subtaskData['endDate'] ?? '');
-        $this->setTaskMeta($subtaskId, 'labels', $subtaskData['labels'] ?? []);
-        $this->setTaskMeta($subtaskId, 'status', $subtaskData['status'] ?? self::STATUS_PENDING);
-
-        $subtask = $this->getTask($subtaskId);
-
-        if (!$subtask) {
-            throw new RuntimeException('Failed to retrieve subtask data.');
-        }
-
-        return $subtask;
+            if ($need_add_site) {
+                if (substr($url, 0, 1) != '/') {
+                    $url = '/' . $url;
+                };
+                $url = $this->site . $url;
+            };
+        };
+        return $url;
     }
 
-    public function updateTask($taskId, $updateData) {
-        if (empty($updateData) || !is_array($updateData)) {
-            throw new InvalidArgumentException('Update data must be a non-empty array.');
-        }
-        $task = ge_post($taskId);
-        if (!$task || $task->post_type !== self::POST_TYPE) {
-            throw new InvalidArgumentException('Invalid task ID.');
-        }
+    function add_url($url)
+    {
+        $need_add = false;
 
-        if (!empty($updateData['title'])) {
-            $task->post_title = $updateData['title'];
-            wp_update_post($task);
-        }
-        if (!empty($updateData['desc'])) {
-            $this->setTaskMeta($taskId, 'taskDesc', $updateData['desc']);
-        }
-        if (!empty($updateData['assignees'])) {
-            $this->setTaskMeta($taskId, 'assignees', $updateData['assignees']);
-        }
-        if (!empty($updateData['start_date'])) {
-            $this->setTaskMeta($taskId, 'start_date', $updateData['start_date']);
-        }
-        if (!empty($updateData['end_date'])) {
-            $this->setTaskMeta($taskId, 'end_date', $updateData['end_date']);
-        }
-        if (!empty($updateData['labels'])) {
-            $this->setTaskMeta($taskId, 'labels', $updateData['labels']);
-        }
-        if (!empty($updateData['status'])) {
-            $this->setTaskMeta($taskId, 'status', $updateData['status']);
-        }
+        if ((substr($url, 0, 4) != 'tel:') && (substr($url, 0, 7) != 'mailto:') && (strpos($url,'/#') == false)
+        ) {
+            if ($url !== '') {
+                if (strpos($url, $this->site) !== false) {
+                    if ($this->site.'/' !== $url) {
+                        $query = 'SELECT COUNT(*) as count FROM Spider_page WHERE url = "'.$url.'"';
+                        $count = $this->DB->get_results($query)[0]->count;
+                        if ($count <= 0) {
+                            $need_add = true;
+                        }
+                    };
+                };
+            };
+        };
 
-        return true;
+        if ($need_add) {
+            $resultD = $this->DB->insert('Spider_page',['url'=>$url]);
+            return $url;
+        };
+        return $need_add;
     }
-
-    public function deleteTask($taskId) {
-        $task = get_post($taskId);
-
-        if (!$task || $task->post_type !== self::POST_TYPE) {
-            throw new InvalidArgumentException('Invalid task ID.');
-        }
-
-        $taskType = $this->getTaskType($taskId);
-
-        if ($taskType === 'subtask') {
-            $result = wp_delete_post($taskId, true);
-        } else {
-            $subtasks = get_children([
-                'post_parent' => $taskId,
-                'post_type' => self::POST_TYPE,
-            ]);
-
-            foreach ($subtasks as $subtask) {
-                wp_delete_post($subtask->ID, true);
-            }
-
-            $result = wp_delete_post($taskId, true);
-       }
-   	}
-    public function deleteTaskMeta($taskId, $metaKey) {
-        if (empty($metaKey)) {
-            throw new InvalidArgumentException('Meta key cannot be empty.');
-        }
-        delete_post_meta($taskId, $metaKey);
-    }
-
-    public function getTaskType($taskId) {
-        $task = get_post($taskId);
-        if (!$task) {
-            throw new InvalidArgumentException('Invalid task ID.');
-        }
-
-        if ($task->post_parent) {
-            return 'subtask';
-        } else {
-            return 'task';
-        }
-    }
-    public function setTaskMeta($taskId, $metaKey, $metaValue) {
-	    if (empty($metaKey)) {
-	        throw new InvalidArgumentException('Meta key cannot be empty.');
-	    }
-
-	    if (is_array($metaValue)) {
-	        $metaValue = array_filter($metaValue);
-	    }
-	    update_post_meta($taskId, $metaKey, $metaValue);
-	}
-    public function assignTask($taskId, $assignees) {
-	    if (empty($assignees) || !is_array($assignees)) {
-	        throw new InvalidArgumentException('Assignees must be a non-empty array.');
-	    }
-	    $task = get_post($taskId);
-
-	    if (!$task || $task->post_type !== self::POST_TYPE) {
-	        throw new InvalidArgumentException('Invalid task ID.');
-	    }
-
-	    $this->setTaskMeta($taskId, 'assignees', $assignees);
-
-	    return true;
-	}
-	public function add_status( $status ) {
-        $statuses = $this->get_tasks_status();
-        $statuses[] = $status;
-        $this->set_statuses( $statuses );
-    }
-
-    public function update_status( $old_status, $new_status ) {
-        $statuses = $this->get_tasks_status();
-        $key = array_search( $old_status, $statuses );
-        if ( $key !== false ) {
-            $statuses[ $key ] = $new_status;
-            $this->set_statuses( $statuses );
-         }
- 	}
-    public function delete_status( $status ) {
-        $statuses = $this->get_tasks_status();
-        $key = array_search( $status, $statuses );
-        if ( $key !== false ) {
-            unset( $statuses[ $key ] );
-            $this->set_statuses( $statuses );
-        }
-    }
-    private function Defult_statuses() {
-    	$Defult_statuses = [];
-    	$Defult_statuses['todo']=[
-    		'name'=>'todo',
-    		'color'=>'#d3d3d3',
-    		'order'=>0,
-    	];
-    	$Defult_statuses['inprogress']=[
-    		'name'=>'inprogress',
-    		'color'=>'#fd9800',
-    		'order'=>0,
-    	];
-    	$Defult_statuses['completed']=[
-    		'name'=>'completed',
-    		'color'=>'#40b5b5',
-    		'order'=>0,
-    	];
-    	return $Defult_statuses ;
-    } 
-    public function Priorities() {
-        $Priority = array(
-            [
-            "name" => "عاجل",
-            "color" => "#FF0000"
-            ], 
-            [
-            "name" => "مهم",
-             "color" => "#0000FF"
-            ], 
-            [
-            "name" => "متوسط  ",
-             "color" => "#FFA500"
-            ], 
-            [
-            "name" => "طبيعي ",
-             "color" => "#40b5b5"
-            ], 
-            [
-            "name" => "قليل ",
-             "color" => "#808080"
-            ], 
-        );
-        return $Priority ;
-    } 
-    public function get_tasks_status(){
-    	$userID = wp_get_current_user()->ID;
-    	$tasks_status = get_user_meta($userID,'tasks_status',1);
-    	if(empty($tasks_status)){
-    		$tasks_status = $this->Defult_statuses();
-    		update_user_meta( $userID,'tasks_status', $tasks_status);
-    	}
-    	return $tasks_status ;
-    }
-    public function send_notification($user_ids,$message) {
-      $title = __('New Notification');
-      $args = array(
-          'post_title' => $title,
-          'post_content' => $message,
-          'post_status' => 'publish',
-          'post_type' => self::NOTIFICATION_TYPE
-      );
-
-      $notification_id = wp_insert_post($args);
-      if (!$notification_id) {
+    public function file_get_contents($url, $find=false, $times=0) {
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_ENCODING,"");
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_HEADER, true);
+        curl_setopt($ch, CURLINFO_HEADER_OUT, true);
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+        curl_setopt($ch, CURLOPT_FILETIME, true);
+        curl_setopt($ch, CURLOPT_USERAGENT,"Mozilla/5.0 (Windows NT 5.1; rv:32.0) Gecko/20100101 Firefox/32.0");
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 100);
+        curl_setopt($ch, CURLOPT_VERBOSE, true);
+        curl_setopt($ch, CURLOPT_AUTOREFERER, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT,100);
+        curl_setopt($ch, CURLOPT_FAILONERROR,true);
+        $data = curl_exec($ch);
+        if (curl_errno($ch)){
           return false;
-      }
+        }
 
-      foreach ($user_ids as $user_id) {
-          add_post_meta($notification_id,'_notification_users', $user_id);
-      }
+        return $data ;
+    }
+    public function seo_isseuse($url,$id_page) {
+        $seoData = file_get_contents('https://rankmath.com/analyze/v2/json/?u='.$url);
+        $seoData = json_decode($seoData,1);
+        foreach ($seoData as $key => $case) {
+            $title= $case['title'];
+            $category= $case['category'];
+            $priority= $case['priority'];
+            $description = $case['description'];
+            $tooltip= $case['tooltip'];
+            $status= $case['status'];
+            $message= $case['message'];
+            $data= isset($case['data']) ? $case['data'] : '';
+            if(is_array($data)){
+                $data= base64_encode(json_encode($data));
+            }
+            $fix= isset($case['fix']) ? $case['fix'] : '';
+            $query = "SELECT count(*) as count FROM `Spider_seo` WHERE `id_page` = '".$id_page."' AND `title` LIKE '".$title."'";
+            $count = $this->DB->get_results($query)[0]->count;
+            if($count >0){
+                $info  = ['id_page'=>$id_page,'title'=>$title,'category'=>$category,'priority'=>$priority,'description'=>$description,'tooltip'=>$tooltip,'status'=>$status,'message'=>$message,'data'=>$data,'fix'=>$fix];
+                $resultD = $this->DB->update('Spider_seo',$info,['id_page'=>$id_page,'title'=>$title]);
+            }else{
+                $resultD = $this->DB->insert('Spider_seo',['id_page'=>$id_page,'title'=>$title,'category'=>$category,'priority'=>$priority,'description'=>$description,'tooltip'=>$tooltip,'status'=>$status,'message'=>$message,'data'=>$data,'fix'=>$fix]);
+            }
 
-      return true;
+        }
+
     }
 }
+//print_r(file_get_contents('https://rankmath.com/analyze/v2/json/?u=wpar.net'));
 
+ //print_r(file_get_contents("https://trends.google.com/trends/api/widgetdata/relatedsearches?hl=ar&tz=-120&req=%7B%22restriction%22:%7B%22geo%22:%7B%7D,%22time%22:%222022-11-22+2022-12-22%22,%22originalTimeRangeForExploreUrl%22:%22today+1-m%22,%22complexKeywordsRestriction%22:%7B%22keyword%22:%5B%7B%22type%22:%22BROAD%22,%22value%22:%22%D8%B4%D8%B1%D8%A8+%D8%A7%D9%84%D9%85%D8%A7%D8%A1%22%7D%5D%7D%7D,%22keywordType%22:%22QUERY%22,%22metric%22:%5B%22TOP%22,%22RISING%22%5D,%22trendinessSettings%22:%7B%22compareTime%22:%222022-10-22+2022-11-21%22%7D,%22requestOptions%22:%7B%22property%22:%22%22,%22backend%22:%22IZG%22,%22category%22:0%7D,%22language%22:%22ar%22,%22userCountryCode%22:%22EG%22,%22userConfig%22:%7B%22userType%22:%22USER_TYPE_LEGIT_USER%22%7D%7D&token=APP6_UEAAAAAY6W9KCn72R6Y6LDBtyFQ6M81bZ2nG-xy"));
+
+
+
+ 
