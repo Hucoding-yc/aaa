@@ -1,0 +1,420 @@
+<?
+ini_set('memory_limit', '-1');
+class siteparser
+{
+    var $site,
+        $DB,
+        $pID,
+        $count;
+
+    function __construct($site='',$pID)
+    {
+        global $wpdb;
+        $this->DB =  $wpdb;
+        $this->pID =  $pID;
+        $this->site = $site;
+        $charset_collate = $wpdb->get_charset_collate();
+        $querys[] = '
+            CREATE TABLE IF NOT EXISTS Spider_history (
+                id INTEGER PRIMARY KEY AUTO_INCREMENT,
+                date TEXT,
+                errors TEXT,
+                todo TEXT,
+                comment TEXT
+            );
+        ';        
+        $querys[] = '
+            CREATE TABLE IF NOT EXISTS Spider_seo (
+                id INTEGER PRIMARY KEY AUTO_INCREMENT,
+                title TEXT,
+                category TEXT,
+                priority TEXT,
+                description TEXT,
+                tooltip TEXT,
+                status TEXT,
+                message TEXT,
+                data TEXT,
+                fix TEXT
+            );
+        ';
+        $querys[] = '
+            CREATE TABLE IF NOT EXISTS Spider_page (
+                id INTEGER PRIMARY KEY AUTO_INCREMENT,
+                project INTEGER,
+                url TEXT
+            );
+        ';
+        $querys[] = '
+            CREATE TABLE IF NOT EXISTS Spider_code (
+                id INTEGER PRIMARY KEY AUTO_INCREMENT,
+                id_page INTEGER,
+                responce_code TEXT,
+                date TEXT
+            );
+        ';
+
+        $querys[] = '
+            CREATE TABLE IF NOT EXISTS Spider_meta (
+                id INTEGER PRIMARY KEY AUTO_INCREMENT,
+                id_page INTEGER,
+                name TEXT,
+                content TEXT,
+                date TEXT
+            );
+        ';
+        $querys[] = '
+            CREATE TABLE IF NOT EXISTS Spider_link (
+                id INTEGER PRIMARY KEY AUTO_INCREMENT,
+                id_page INTEGER,
+                rel TEXT,
+                href TEXT,
+                full TEXT,
+                date TEXT
+            );
+        ';
+        $querys[] = '
+            CREATE TABLE IF NOT EXISTS Spider_h16 (
+                id INTEGER PRIMARY KEY AUTO_INCREMENT,
+                id_page INTEGER,
+                name TEXT,
+                content TEXT,
+                date TEXT
+            );
+        ';
+        $querys[] = '
+            CREATE TABLE IF NOT EXISTS Spider_source (
+                id INTEGER PRIMARY KEY AUTO_INCREMENT,
+                project_id INTEGER,
+                id_page INTEGER,
+                id_page_source INTEGER,
+                date TEXT
+            );
+        ';
+        $querys[] = '
+            CREATE TABLE IF NOT EXISTS Spider_image (
+                id INTEGER PRIMARY KEY AUTO_INCREMENT,
+                id_page INTEGER,
+                src TEXT,
+                alt TEXT,
+                title TEXT,
+                date TEXT
+            );
+        ';
+        $querys[] = '
+            CREATE TABLE IF NOT EXISTS Spider_errors (
+                id INTEGER PRIMARY KEY AUTO_INCREMENT,
+                id_page INTEGER,
+                error TEXT,
+                date TEXT
+            );
+        ';
+
+        foreach ($querys as $query) {
+            require_once( ABSPATH . 'wp-admin/includes/upgrade.php' );
+            dbDelta( $query ); 
+        };
+        //$this->site = trim($this->$site, '/');
+        $query = 'SELECT COUNT(*) as count FROM Spider_page WHERE url="'.$this->site.'" ';
+        $count = $this->DB->get_results($query)[0]->count;
+        if ($count == 0) {
+            $this->add_url($this->site);
+        }
+        $this->count = $count;
+    }
+
+    function do($start, $limit, $date)
+    {
+
+        $i = 0;
+        if ($start == 0) {
+            /* Запишем в историю что начали сканирование */
+            $query = 'SELECT COUNT(*) as count FROM Spider_history WHERE date="'.$date.'";';
+            $count_history = $this->DB->get_results($query);
+            if ($count_history[0]->count == 0) {
+                $resultD = $this->DB->insert('Spider_history',['date'=>$date]);
+            };
+        };
+        $Noton  = 'SELECT id_page FROM Spider_code WHERE Spider_code.date == '.$date.' ';
+        $query = 'SELECT Spider_page.id as id, Spider_page.url as url FROM Spider_page   LIMIT 1 OFFSET '.$start.'';
+        $result = $this->DB->get_results($query);
+        if(!isset($result[0])){
+           $start = 0 ; 
+           $i = 0 ; 
+           $return = 0 ;
+        }else{
+            $row = $result[0];
+            $id = (int)$row->id;
+            $url = $row->url;
+            $res = $this->get_contents($url);
+            if (isset($res['error']) && $res['error'] != '') {
+                $resultD = $this->DB->insert('Spider_errors',['id_page'=>$id,'error'=>$res['error'],'date'=>$date]);
+            } else {
+                if (isset($res['header']['reponse_code']) and $res['header']['reponse_code'] == 200) {
+                    $res2 = $this->parse_page($res['content'], $id);
+                 $seo_isseuse = $this->seo_isseuse($url,$id);
+                    if(!empty($res2)){
+                        $resultD = $this->DB->insert('Spider_meta',['id_page'=>$id,'name'=>'title','content'=>$res2['title'],'date'=>$date]);
+                        foreach ($res2['meta'] as $name=>$content) {
+                            $resultD = $this->DB->insert('Spider_meta',['id_page'=>$id,'name'=>$name,'content'=>$content,'date'=>$date]);
+                        }
+                        $h = 1;
+                        while ($h < 6) {
+                            if (is_array($res2['h'.$h])) {
+                                foreach ($res2['h'.$h] as $hcontent) {
+                                $resultD = $this->DB->insert('Spider_h16',['id_page'=>$id,'name'=>'h'.$h,'content'=>$hcontent,'date'=>$date]);
+                                }
+                            };
+                            $h++;
+                        };
+                       // echo '<p>' . $url . ' (new links: '.count($res2['links']).')</p>';
+                    }
+                }else{
+                    $resultD = $this->DB->insert('Spider_code',['id_page'=>$id,'responce_code'=>$res['header']['reponse_code'],'date'=>$date]);
+                }
+            };
+           $return = $start + 1 ;
+        }
+        $i++;
+        return $return;
+    }
+
+    function getMetaTags($str)
+    {
+        $pattern = '
+      ~<\s*meta\s
+
+      # using lookahead to capture type to $1
+        (?=[^>]*?
+        \b(?:name|property|http-equiv)\s*=\s*
+        (?|"\s*([^"]*?)\s*"|\'\s*([^\']*?)\s*\'|
+        ([^"\'>]*?)(?=\s*/?\s*>|\s\w+\s*=))
+      )
+
+      # capture content to $2
+      [^>]*?\bcontent\s*=\s*
+        (?|"\s*([^"]*?)\s*"|\'\s*([^\']*?)\s*\'|
+        ([^"\'>]*?)(?=\s*/?\s*>|\s\w+\s*=))
+      [^>]*>
+
+      ~ix';
+
+        if (preg_match_all($pattern, $str, $out))
+            return array_combine($out[1], $out[2]);
+        return array();
+    }
+
+
+    function getMetaLinks($str)
+    {
+        $pattern = '
+      ~<\s*link\s
+
+      # using rel to $1
+        (?=[^>]*?
+        \b(?:rel)\s*=\s*
+        (?|"\s*([^"]*?)\s*"|\'\s*([^\']*?)\s*\'|
+        ([^"\'>]*?)(?=\s*/?\s*>|\s\w+\s*=))
+      )
+
+      # capture href to $2
+      [^>]*?\bhref\s*=\s*
+        (?|"\s*([^"]*?)\s*"|\'\s*([^\']*?)\s*\'|
+        ([^"\'>]*?)(?=\s*/?\s*>|\s\w+\s*=))
+      [^>]*>
+
+      ~ix';
+
+        if (preg_match_all($pattern, $str, $out))
+            return array_combine($out[1], $out[2]);
+        return array();
+    }
+
+    function parse_page($content, $id_page_source)
+    {
+        /* title */
+        $result = [];
+        $matches = [];
+        $res = preg_match("/<title>(.*)<\/title>/siU", $content, $matches);
+        if (!$res) {
+            $result['title'] = '';
+        } else {
+            $title = preg_replace('/\s+/', ' ', $matches[1]);
+            $title = trim($title);
+            $result['title'] = $title;
+        };
+
+        /* meta tags */
+
+        $meta  = $this->getMetaTags($content);
+        $result['meta'] = $meta;
+
+        $metalink  = $this->getMetaLinks($content);
+        $result['metalink'] = $metalink;
+        /* h1 - h6 */
+
+        $i = 1;
+        while ($i < 6) {
+            $matches = [];
+            $res = preg_match_all('/<h' . $i . '.*>(.*)<\/h' . $i . '>/siU', $content, $matches);
+            $result['h' . $i] = array();
+            if (!$res) {
+            } else {
+                foreach ($matches[1] as $match) {
+                    $h = preg_replace('/\s+/', ' ', $match);
+                    $h = trim(strip_tags($h));
+                    $result['h' . $i][] .= $h;
+                };
+            };
+            $i++;
+        };
+        $result['links'] = array();
+        if (preg_match_all("/<a\s[^>]*href=(\"??)([^\" >]*?)\\1[^>]*>(.*)<\/a>/siU", $content, $matches, PREG_SET_ORDER)) {
+            foreach ($matches as $match) {
+                $url = $this->prepare_url($match[2]);
+                if ($this->add_url($url)) {
+                    $result['links'][] = $url;
+                };
+                $query = 'SELECT id FROM Spider_page WHERE url ="'.$url.'";';
+                $id_page = $this->DB->get_results($query);
+                if (isset($id_page[0])) {
+                    $resultD = $this->DB->insert('Spider_source',['project_id'=>$this->pID,'id_page'=>$id_page[0]->id,'id_page_source'=>$id_page_source,'date'=>'']);
+                }
+                // $match[2] = link address
+                // $match[3] = link text
+            }
+        }        
+        return $result;
+    }
+    function get_contents($url){
+            $result['content'] = $this->file_get_contents($url);
+            $result['header'] = [];
+            $http_response_header = NULL;
+            if (($result['content'] == '') || ($http_response_header === NULL)) {
+                $ch = curl_init();
+                curl_setopt($ch, CURLOPT_URL, $url);
+                curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+                $response = curl_exec($ch);
+                $header_size = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+                $result['content'] = $response;
+                $result['header']['reponse_code'] = curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+            }
+        return $result;
+    }
+    function parseHeaders($headers){
+        $head = array();
+        foreach ($headers as $k => $v) {
+            $t = explode(':', $v, 2);
+            if (isset($t[1]))
+                $head[trim($t[0])] = trim($t[1]);
+            else {
+                $head[] = $v;
+                if (preg_match("#HTTP/[0-9\.]+\s+([0-9]+)#", $v, $out)) {
+                    $head['reponse_code'] = intval($out[1]);
+                }
+            }
+        }
+        return $head;
+    }
+
+    function prepare_url($url) {
+        if ($url !== '') {
+            $need_add_site = false;
+            if ((substr($url, 0, 6) != 'https:') &&
+                (substr($url, 0, 5) != 'http:') &&
+                (substr($url, 0, 2) != '//')
+            ) {
+                $need_add_site = true;
+            };
+
+            if ($need_add_site) {
+                if (substr($url, 0, 1) != '/') {
+                    $url = '/' . $url;
+                };
+                $url = $this->site . $url;
+            };
+        };
+        return $url;
+    }
+
+    function add_url($url)
+    {
+        $need_add = false;
+
+        if ((substr($url, 0, 4) != 'tel:') && (substr($url, 0, 7) != 'mailto:') && (strpos($url,'/#') == false)
+        ) {
+            if ($url !== '') {
+                if (strpos($url, $this->site) !== false) {
+                    if ($this->site.'/' !== $url) {
+                        $query = 'SELECT COUNT(*) as count FROM Spider_page WHERE url = "'.$url.'"';
+                        $count = $this->DB->get_results($query)[0]->count;
+                        if ($count <= 0) {
+                            $need_add = true;
+                        }
+                    };
+                };
+            };
+        };
+
+        if ($need_add) {
+            $resultD = $this->DB->insert('Spider_page',['url'=>$url]);
+            return $url;
+        };
+        return $need_add;
+    }
+    public function file_get_contents($url, $find=false, $times=0) {
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_ENCODING,"");
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_HEADER, true);
+        curl_setopt($ch, CURLINFO_HEADER_OUT, true);
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+        curl_setopt($ch, CURLOPT_FILETIME, true);
+        curl_setopt($ch, CURLOPT_USERAGENT,"Mozilla/5.0 (Windows NT 5.1; rv:32.0) Gecko/20100101 Firefox/32.0");
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 100);
+        curl_setopt($ch, CURLOPT_VERBOSE, true);
+        curl_setopt($ch, CURLOPT_AUTOREFERER, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT,100);
+        curl_setopt($ch, CURLOPT_FAILONERROR,true);
+        $data = curl_exec($ch);
+        if (curl_errno($ch)){
+          return false;
+        }
+
+        return $data ;
+    }
+    public function seo_isseuse($url,$id_page) {
+        $seoData = file_get_contents('https://rankmath.com/analyze/v2/json/?u='.$url);
+        $seoData = json_decode($seoData,1);
+        foreach ($seoData as $key => $case) {
+            $title= $case['title'];
+            $category= $case['category'];
+            $priority= $case['priority'];
+            $description = $case['description'];
+            $tooltip= $case['tooltip'];
+            $status= $case['status'];
+            $message= $case['message'];
+            $data= isset($case['data']) ? $case['data'] : '';
+            if(is_array($data)){
+                $data= base64_encode(json_encode($data));
+            }
+            $fix= isset($case['fix']) ? $case['fix'] : '';
+            $query = "SELECT count(*) as count FROM `Spider_seo` WHERE `id_page` = '".$id_page."' AND `title` LIKE '".$title."'";
+            $count = $this->DB->get_results($query)[0]->count;
+            if($count >0){
+                $info  = ['id_page'=>$id_page,'title'=>$title,'category'=>$category,'priority'=>$priority,'description'=>$description,'tooltip'=>$tooltip,'status'=>$status,'message'=>$message,'data'=>$data,'fix'=>$fix];
+                $resultD = $this->DB->update('Spider_seo',$info,['id_page'=>$id_page,'title'=>$title]);
+            }else{
+                $resultD = $this->DB->insert('Spider_seo',['id_page'=>$id_page,'title'=>$title,'category'=>$category,'priority'=>$priority,'description'=>$description,'tooltip'=>$tooltip,'status'=>$status,'message'=>$message,'data'=>$data,'fix'=>$fix]);
+            }
+
+        }
+
+    }
+}
+//print_r(file_get_contents('https://rankmath.com/analyze/v2/json/?u=wpar.net'));
+
+ //print_r(file_get_contents("https://trends.google.com/trends/api/widgetdata/relatedsearches?hl=ar&tz=-120&req=%7B%22restriction%22:%7B%22geo%22:%7B%7D,%22time%22:%222022-11-22+2022-12-22%22,%22originalTimeRangeForExploreUrl%22:%22today+1-m%22,%22complexKeywordsRestriction%22:%7B%22keyword%22:%5B%7B%22type%22:%22BROAD%22,%22value%22:%22%D8%B4%D8%B1%D8%A8+%D8%A7%D9%84%D9%85%D8%A7%D8%A1%22%7D%5D%7D%7D,%22keywordType%22:%22QUERY%22,%22metric%22:%5B%22TOP%22,%22RISING%22%5D,%22trendinessSettings%22:%7B%22compareTime%22:%222022-10-22+2022-11-21%22%7D,%22requestOptions%22:%7B%22property%22:%22%22,%22backend%22:%22IZG%22,%22category%22:0%7D,%22language%22:%22ar%22,%22userCountryCode%22:%22EG%22,%22userConfig%22:%7B%22userType%22:%22USER_TYPE_LEGIT_USER%22%7D%7D&token=APP6_UEAAAAAY6W9KCn72R6Y6LDBtyFQ6M81bZ2nG-xy"));
+
+
+
+ 
