@@ -408,7 +408,6 @@ class siteparser
             }
 
         }
-
     }
 }
 //print_r(file_get_contents('https://rankmath.com/analyze/v2/json/?u=wpar.net'));
