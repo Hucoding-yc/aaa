@@ -1,419 +1,222 @@
-<?
-ini_set('memory_limit', '-1');
-class siteparser
-{
-    var $site,
-        $DB,
-        $pID,
-        $count;
+ function SeoAnlasic() {
+        if ($('paraphraser').length > 0) {
+            var input = $('input[name="PostTitle"]');
+            // input.addEventListener('input[name="PostTitle"]', resizeInput);
+            // resizeInput.call(input);
 
-    function __construct($site='',$pID)
-    {
-        global $wpdb;
-        $this->DB =  $wpdb;
-        $this->pID =  $pID;
-        $this->site = $site;
-        $charset_collate = $wpdb->get_charset_collate();
-        $querys[] = '
-            CREATE TABLE IF NOT EXISTS Spider_history (
-                id INTEGER PRIMARY KEY AUTO_INCREMENT,
-                date TEXT,
-                errors TEXT,
-                todo TEXT,
-                comment TEXT
-            );
-        ';        
-        $querys[] = '
-            CREATE TABLE IF NOT EXISTS Spider_seo (
-                id INTEGER PRIMARY KEY AUTO_INCREMENT,
-                title TEXT,
-                category TEXT,
-                priority TEXT,
-                description TEXT,
-                tooltip TEXT,
-                status TEXT,
-                message TEXT,
-                data TEXT,
-                fix TEXT
-            );
-        ';
-        $querys[] = '
-            CREATE TABLE IF NOT EXISTS Spider_page (
-                id INTEGER PRIMARY KEY AUTO_INCREMENT,
-                project INTEGER,
-                url TEXT
-            );
-        ';
-        $querys[] = '
-            CREATE TABLE IF NOT EXISTS Spider_code (
-                id INTEGER PRIMARY KEY AUTO_INCREMENT,
-                id_page INTEGER,
-                responce_code TEXT,
-                date TEXT
-            );
-        ';
-
-        $querys[] = '
-            CREATE TABLE IF NOT EXISTS Spider_meta (
-                id INTEGER PRIMARY KEY AUTO_INCREMENT,
-                id_page INTEGER,
-                name TEXT,
-                content TEXT,
-                date TEXT
-            );
-        ';
-        $querys[] = '
-            CREATE TABLE IF NOT EXISTS Spider_link (
-                id INTEGER PRIMARY KEY AUTO_INCREMENT,
-                id_page INTEGER,
-                rel TEXT,
-                href TEXT,
-                full TEXT,
-                date TEXT
-            );
-        ';
-        $querys[] = '
-            CREATE TABLE IF NOT EXISTS Spider_h16 (
-                id INTEGER PRIMARY KEY AUTO_INCREMENT,
-                id_page INTEGER,
-                name TEXT,
-                content TEXT,
-                date TEXT
-            );
-        ';
-        $querys[] = '
-            CREATE TABLE IF NOT EXISTS Spider_source (
-                id INTEGER PRIMARY KEY AUTO_INCREMENT,
-                project_id INTEGER,
-                id_page INTEGER,
-                id_page_source INTEGER,
-                date TEXT
-            );
-        ';
-        $querys[] = '
-            CREATE TABLE IF NOT EXISTS Spider_image (
-                id INTEGER PRIMARY KEY AUTO_INCREMENT,
-                id_page INTEGER,
-                src TEXT,
-                alt TEXT,
-                title TEXT,
-                date TEXT
-            );
-        ';
-        $querys[] = '
-            CREATE TABLE IF NOT EXISTS Spider_errors (
-                id INTEGER PRIMARY KEY AUTO_INCREMENT,
-                id_page INTEGER,
-                error TEXT,
-                date TEXT
-            );
-        ';
-
-        foreach ($querys as $query) {
-            require_once( ABSPATH . 'wp-admin/includes/upgrade.php' );
-            dbDelta( $query ); 
-        };
-        //$this->site = trim($this->$site, '/');
-        $query = 'SELECT COUNT(*) as count FROM Spider_page WHERE url="'.$this->site.'" ';
-        $count = $this->DB->get_results($query)[0]->count;
-        if ($count == 0) {
-            $this->add_url($this->site);
-        }
-        $this->count = $count;
-    }
-
-    function do($start, $limit, $date)
-    {
-
-        $i = 0;
-        if ($start == 0) {
-            /* Запишем в историю что начали сканирование */
-            $query = 'SELECT COUNT(*) as count FROM Spider_history WHERE date="'.$date.'";';
-            $count_history = $this->DB->get_results($query);
-            if ($count_history[0]->count == 0) {
-                $resultD = $this->DB->insert('Spider_history',['date'=>$date]);
-            };
-        };
-        $Noton  = 'SELECT id_page FROM Spider_code WHERE Spider_code.date == '.$date.' ';
-        $query = 'SELECT Spider_page.id as id, Spider_page.url as url FROM Spider_page   LIMIT 1 OFFSET '.$start.'';
-        $result = $this->DB->get_results($query);
-        if(!isset($result[0])){
-           $start = 0 ; 
-           $i = 0 ; 
-           $return = 0 ;
-        }else{
-            $row = $result[0];
-            $id = (int)$row->id;
-            $url = $row->url;
-            $res = $this->get_contents($url);
-            if (isset($res['error']) && $res['error'] != '') {
-                $resultD = $this->DB->insert('Spider_errors',['id_page'=>$id,'error'=>$res['error'],'date'=>$date]);
+            // function resizeInput() {
+            //     this.style.width = this.value.length + "ch";
+            // }
+            var seo_anlassis = '';
+            seo_anlassis += '<ul>';
+            var maonkeyword = Post_structure.keyword;
+            var wordsArray = $('.fr-element').text().split(' ');
+            var wordsCount = wordsArray.length;
+            var wordsrichio = wordsCount * 0.10;
+            var wordsrichio = Math.floor(wordsrichio);
+            var endarray = wordsArray.slice(0, wordsrichio);
+            var Endtext = endarray.join(' ');
+            /**/
+            if (wordsCount > 300) {
+                seo_anlassis += '<li class="seomessage_item seoGood"><span>النص يحتوي على ' + wordsCount + ' كلمة. هذا أكثر  الحد الأدنى   هو 300 كلمة.</span></li>';
             } else {
-                if (isset($res['header']['reponse_code']) and $res['header']['reponse_code'] == 200) {
-                    $res2 = $this->parse_page($res['content'], $id);
-                 $seo_isseuse = $this->seo_isseuse($url,$id);
-                    if(!empty($res2)){
-                        $resultD = $this->DB->insert('Spider_meta',['id_page'=>$id,'name'=>'title','content'=>$res2['title'],'date'=>$date]);
-                        foreach ($res2['meta'] as $name=>$content) {
-                            $resultD = $this->DB->insert('Spider_meta',['id_page'=>$id,'name'=>$name,'content'=>$content,'date'=>$date]);
-                        }
-                        $h = 1;
-                        while ($h < 6) {
-                            if (is_array($res2['h'.$h])) {
-                                foreach ($res2['h'.$h] as $hcontent) {
-                                $resultD = $this->DB->insert('Spider_h16',['id_page'=>$id,'name'=>'h'.$h,'content'=>$hcontent,'date'=>$date]);
-                                }
-                            };
-                            $h++;
-                        };
-                       // echo '<p>' . $url . ' (new links: '.count($res2['links']).')</p>';
+                seo_anlassis += '<li class="seomessage_item seoerror"><span>عدد كلمات المقال  اقل من  300 كلمه </span></li>';
+            }
+            if (wordsCount < 300 && Endtext.indexOf(maonkeyword) > -1) {
+                seo_anlassis += '<li class="seomessage_item seoerror"><span> الكلمه البحثيه  موجوده في اول   10% من  المحتوي </span></li>';
+            } else {
+                seo_anlassis += '<li class="seomessage_item seoGood"><span> الكلمه البحثيه  موجوده في اول   10% من  المحتوي </span></li>';
+            }
+            /*Images*/
+            var Images = $('.fr-element img');
+            if (Images.length > 0) {
+                var Imagesmaonkeyword = $('.fr-element img[alt="' + maonkeyword + '"]');
+                if (Imagesmaonkeyword.length > 0) {
+                    seo_anlassis += '<li class="seomessage_item seoGood"><span> تحتوي الصور الموجودة  على نص بديل تحتوي على الكلمة البحثية </span></li>';
+                } else {
+                    seo_anlassis += '<li class="seomessage_item seowarning"><span>لا تحتوي الصور الموجودة  على نص بديل تحتوي على الكلمة البحثية</span></li>';
+                }
+            } else {
+                seo_anlassis += '<li class="seomessage_item seowarning"><span>لا توجد صور في المقالة ، اضف بعضها بالشكل المناسب.</span></li>';
+            }
+            /*ScitncesCount*/
+            var ScitncesCount = $('.fr-element').text().split('.');
+            var coubtddf = [];
+            $.each(ScitncesCount, function(key, value) {
+                var r = value.split(' ').length;
+                if (r >= 20) {
+                    coubtddf.push(r);
+                }
+            })
+            ScitncesCountR = coubtddf.length / ScitncesCount.length
+            ScitncesCountR = ScitncesCountR * 100;
+            var ScitncesCountR = Math.floor(ScitncesCountR);
+            ScitncesCountRTocheck = (.25 * ScitncesCount.length);
+            if (wordsCount > 300 && ScitncesCountR >= ScitncesCountRTocheck) {
+                seo_anlassis += '<li class="seomessage_item seoGood"><span>' + ScitncesCountR + '%من الجمل تحتوي على أكثر من 20 كلمة ، الحد الأقصى  هو 25٪.</span></li>';
+            } else {
+                seo_anlassis += '<li class="seomessage_item seoerror ">' + ScitncesCountR + '%من الجمل تحتوي على أكثر من 20 كلمة ، الحد الأقصى  هو 25٪.</li>';
+            }
+            /*internal linking*/
+            var Contnetlinks = $('.fr-element a');
+            var Contnetlinks_count = Contnetlinks.length;
+            var Contnetlinks_arr_inner = [];
+            var Contnetlinks_arr_outer = [];
+            if (Contnetlinks_count > 0) {
+                $.each(Contnetlinks, function(key, value) {
+                    if ($(this).attr('href').indexOf(Current_website) > -1) {
+                        Contnetlinks_arr_inner.push($(this).attr('href'));
+                    } else {
+                        Contnetlinks_arr_outer.push($(this).attr('href'));
                     }
-                }else{
-                    $resultD = $this->DB->insert('Spider_code',['id_page'=>$id,'responce_code'=>$res['header']['reponse_code'],'date'=>$date]);
+                })
+                if (Contnetlinks_arr_outer.length > 0) {
+                    seo_anlassis += '<li class="seomessage_item seoGood"><span>تم اضافة روايط داخلية الي المقالة</span></li>';
+                } else {
+                    seo_anlassis += '<li class="seomessage_item seowarning"><span>اضف روابط خارجية الي المقالة</span></li>';
                 }
-            };
-           $return = $start + 1 ;
-        }
-        $i++;
-        return $return;
-    }
-
-    function getMetaTags($str)
-    {
-        $pattern = '
-      ~<\s*meta\s
-
-      # using lookahead to capture type to $1
-        (?=[^>]*?
-        \b(?:name|property|http-equiv)\s*=\s*
-        (?|"\s*([^"]*?)\s*"|\'\s*([^\']*?)\s*\'|
-        ([^"\'>]*?)(?=\s*/?\s*>|\s\w+\s*=))
-      )
-
-      # capture content to $2
-      [^>]*?\bcontent\s*=\s*
-        (?|"\s*([^"]*?)\s*"|\'\s*([^\']*?)\s*\'|
-        ([^"\'>]*?)(?=\s*/?\s*>|\s\w+\s*=))
-      [^>]*>
-
-      ~ix';
-
-        if (preg_match_all($pattern, $str, $out))
-            return array_combine($out[1], $out[2]);
-        return array();
-    }
-
-
-    function getMetaLinks($str)
-    {
-        $pattern = '
-      ~<\s*link\s
-
-      # using rel to $1
-        (?=[^>]*?
-        \b(?:rel)\s*=\s*
-        (?|"\s*([^"]*?)\s*"|\'\s*([^\']*?)\s*\'|
-        ([^"\'>]*?)(?=\s*/?\s*>|\s\w+\s*=))
-      )
-
-      # capture href to $2
-      [^>]*?\bhref\s*=\s*
-        (?|"\s*([^"]*?)\s*"|\'\s*([^\']*?)\s*\'|
-        ([^"\'>]*?)(?=\s*/?\s*>|\s\w+\s*=))
-      [^>]*>
-
-      ~ix';
-
-        if (preg_match_all($pattern, $str, $out))
-            return array_combine($out[1], $out[2]);
-        return array();
-    }
-
-    function parse_page($content, $id_page_source)
-    {
-        /* title */
-        $result = [];
-        $matches = [];
-        $res = preg_match("/<title>(.*)<\/title>/siU", $content, $matches);
-        if (!$res) {
-            $result['title'] = '';
-        } else {
-            $title = preg_replace('/\s+/', ' ', $matches[1]);
-            $title = trim($title);
-            $result['title'] = $title;
-        };
-
-        /* meta tags */
-
-        $meta  = $this->getMetaTags($content);
-        $result['meta'] = $meta;
-
-        $metalink  = $this->getMetaLinks($content);
-        $result['metalink'] = $metalink;
-        /* h1 - h6 */
-
-        $i = 1;
-        while ($i < 6) {
-            $matches = [];
-            $res = preg_match_all('/<h' . $i . '.*>(.*)<\/h' . $i . '>/siU', $content, $matches);
-            $result['h' . $i] = array();
-            if (!$res) {
+                if (Contnetlinks_arr_inner.length > 0) {
+                    seo_anlassis += '<li class="seomessage_item seoGood"><span>تم اضافة روايط خراجية الي المقالة</span></li>';
+                } else {
+                    seo_anlassis += '<li class="seomessage_item seowarning"><span>اضف روابط داخليه الي المقالة</span></li>';
+                }
             } else {
-                foreach ($matches[1] as $match) {
-                    $h = preg_replace('/\s+/', ' ', $match);
-                    $h = trim(strip_tags($h));
-                    $result['h' . $i][] .= $h;
-                };
-            };
-            $i++;
-        };
-        $result['links'] = array();
-        if (preg_match_all("/<a\s[^>]*href=(\"??)([^\" >]*?)\\1[^>]*>(.*)<\/a>/siU", $content, $matches, PREG_SET_ORDER)) {
-            foreach ($matches as $match) {
-                $url = $this->prepare_url($match[2]);
-                if ($this->add_url($url)) {
-                    $result['links'][] = $url;
-                };
-                $query = 'SELECT id FROM Spider_page WHERE url ="'.$url.'";';
-                $id_page = $this->DB->get_results($query);
-                if (isset($id_page[0])) {
-                    $resultD = $this->DB->insert('Spider_source',['project_id'=>$this->pID,'id_page'=>$id_page[0]->id,'id_page_source'=>$id_page_source,'date'=>'']);
+                seo_anlassis += '<li class="seomessage_item seowarning"><span>اضف روابط داخليه الي المقالة</span></li>';
+                seo_anlassis += '<li class="seomessage_item seowarning"><span>اضف روابط خارجية الي المقالة</span></li>';
+            }
+            /*Keywords Density*/
+            var KeywordsCount = $('.fr-element').text().trim();
+            KeywordsCount = KeywordsCount.split(maonkeyword).length;
+            var KeywordsDensity = (KeywordsCount / wordsCount) * 100;
+            var KeywordsDensity = parseFloat(KeywordsDensity);
+            var KeywordsDensity = KeywordsDensity.toFixed(1);
+            if (KeywordsDensity >= 1) {
+                seo_anlassis += '<li class="seomessage_item seoGood"><span>كثافه الكلمه البحثيه هي  ' + KeywordsDensity + '%  ظهرت الكلمه البحثيه ' + KeywordsCount + ' مره  </span></li>';
+            } else {
+                seo_anlassis += '<li class="seomessage_item seoerror"><span>كثافة الكلمات الرئيسية هي  ' + KeywordsDensity + ' استهدف حوالي 1٪ كثافة الكلمة الرئيسية </span></li>';
+            }
+            /**/
+            /*title readbilty*/
+            if (maonkeyword !== '' && $('input[name="PostTitle"]').val().indexOf(maonkeyword) > -1) {
+                seo_anlassis += '<li class="seomessage_item seoGood"><span> استخدم الكلمة البحثية  في عنوان المقال</span></li>';
+            } else {
+                seo_anlassis += '<li class="seomessage_item seoerror"><span> استخدم الكلمة البحثية  في عنوان المقال</span></li>';
+            }
+            if (containsNumbers($('input[name="PostTitle"]').val())) {
+                seo_anlassis += '<li class="seomessage_item seoGood"><span>أنت تستخدم رقمًا في عنوان SEO الخاص بك</span></li>';
+            } else {
+                seo_anlassis += '<li class="seomessage_item seowarning"><span>عنوان SEO الخاص بك لا يحتوي على رقم</span></li>';
+            }
+            seo_anlassis += '</ul>';
+            /* Check subheadings */
+            var subheadings = $('.fr-element').find('h2, h3, h4, h5, h6');
+            var subheadingsCount = 0;
+            var subheadingsTooLongCount = 0;
+            var subheadingsLowDensityCount = 0;
+            var maxSubheadingLength = Math.floor(wordsCount * 15 / 100);
+            for (var i = 0; i < subheadings.length; i++) {
+                var subheadingText = subheadings.eq(i).text();
+                var subheadingWords = subheadingText.split(' ');
+                var subheadingLength = subheadingWords.length;
+                subheadingsCount++;
+                if (subheadingLength > maxSubheadingLength) {
+                    subheadingsTooLongCount++;
                 }
-                // $match[2] = link address
-                // $match[3] = link text
-            }
-        }        
-        return $result;
-    }
-    function get_contents($url){
-            $result['content'] = $this->file_get_contents($url);
-            $result['header'] = [];
-            $http_response_header = NULL;
-            if (($result['content'] == '') || ($http_response_header === NULL)) {
-                $ch = curl_init();
-                curl_setopt($ch, CURLOPT_URL, $url);
-                curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-                $response = curl_exec($ch);
-                $header_size = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
-                $result['content'] = $response;
-                $result['header']['reponse_code'] = curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-            }
-        return $result;
-    }
-    function parseHeaders($headers){
-        $head = array();
-        foreach ($headers as $k => $v) {
-            $t = explode(':', $v, 2);
-            if (isset($t[1]))
-                $head[trim($t[0])] = trim($t[1]);
-            else {
-                $head[] = $v;
-                if (preg_match("#HTTP/[0-9\.]+\s+([0-9]+)#", $v, $out)) {
-                    $head['reponse_code'] = intval($out[1]);
+                var subheadingKeywordCount = subheadingWords.filter(word => word.toLowerCase() === maonkeyword.toLowerCase()).length;
+                var subheadingKeywordDensity = Math.floor(subheadingKeywordCount / subheadingLength * 100);
+                if (subheadingKeywordDensity < 1) {
+                    subheadingsLowDensityCount++;
                 }
             }
-        }
-        return $head;
-    }
-
-    function prepare_url($url) {
-        if ($url !== '') {
-            $need_add_site = false;
-            if ((substr($url, 0, 6) != 'https:') &&
-                (substr($url, 0, 5) != 'http:') &&
-                (substr($url, 0, 2) != '//')
-            ) {
-                $need_add_site = true;
-            };
-
-            if ($need_add_site) {
-                if (substr($url, 0, 1) != '/') {
-                    $url = '/' . $url;
-                };
-                $url = $this->site . $url;
-            };
-        };
-        return $url;
-    }
-
-    function add_url($url)
-    {
-        $need_add = false;
-
-        if ((substr($url, 0, 4) != 'tel:') && (substr($url, 0, 7) != 'mailto:') && (strpos($url,'/#') == false)
-        ) {
-            if ($url !== '') {
-                if (strpos($url, $this->site) !== false) {
-                    if ($this->site.'/' !== $url) {
-                        $query = 'SELECT COUNT(*) as count FROM Spider_page WHERE url = "'.$url.'"';
-                        $count = $this->DB->get_results($query)[0]->count;
-                        if ($count <= 0) {
-                            $need_add = true;
-                        }
-                    };
-                };
-            };
-        };
-
-        if ($need_add) {
-            $resultD = $this->DB->insert('Spider_page',['url'=>$url]);
-            return $url;
-        };
-        return $need_add;
-    }
-    public function file_get_contents($url, $find=false, $times=0) {
-        $ch = curl_init($url);
-        curl_setopt($ch, CURLOPT_ENCODING,"");
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_HEADER, true);
-        curl_setopt($ch, CURLINFO_HEADER_OUT, true);
-        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-        curl_setopt($ch, CURLOPT_FILETIME, true);
-        curl_setopt($ch, CURLOPT_USERAGENT,"Mozilla/5.0 (Windows NT 5.1; rv:32.0) Gecko/20100101 Firefox/32.0");
-        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 100);
-        curl_setopt($ch, CURLOPT_VERBOSE, true);
-        curl_setopt($ch, CURLOPT_AUTOREFERER, true);
-        curl_setopt($ch, CURLOPT_TIMEOUT,100);
-        curl_setopt($ch, CURLOPT_FAILONERROR,true);
-        $data = curl_exec($ch);
-        if (curl_errno($ch)){
-          return false;
-        }
-
-        return $data ;
-    }
-    public function seo_isseuse($url,$id_page) {
-        $seoData = file_get_contents('https://rankmath.com/analyze/v2/json/?u='.$url);
-        $seoData = json_decode($seoData,1);
-        foreach ($seoData as $key => $case) {
-            $title= $case['title'];
-            $category= $case['category'];
-            $priority= $case['priority'];
-            $description = $case['description'];
-            $tooltip= $case['tooltip'];
-            $status= $case['status'];
-            $message= $case['message'];
-            $data= isset($case['data']) ? $case['data'] : '';
-            if(is_array($data)){
-                $data= base64_encode(json_encode($data));
+            if (subheadingsCount > 0) {
+                seo_anlassis += '<li class="seomessage_item seoGood"><span>تم العثور على ' + subheadingsCount + ' عنوان فرعي في المقال.</span></li>';
+                if (subheadingsTooLongCount === 0) {
+                    seo_anlassis += '<li class="seomessage_item seoGood"><span>طول العناوين الفرعية جيد. لم يتم العثور على عنوان فرعي يتجاوز ' + maxSubheadingLength + ' كلمة.</span></li>';
+                } else {
+                    seo_anlassis += '<li class="seomessage_item seoerror"><span>يوجد ' + subheadingsTooLongCount + ' عنوان فرعي يتجاوز طوله ' + maxSubheadingLength + ' كلمة.</span></li>';
+                }
+                if (subheadingsLowDensityCount === 0) {
+                    seo_anlassis += '<li class="seomessage_item seoGood"><span>كثافة الكلمة الرئيسية في العناوين الفرعية جيدة.</span></li>';
+                } else {
+                    seo_anlassis += '<li class="seomessage_item seoerror"><span>يوجد ' + subheadingsLowDensityCount + ' عنوان فرعي يحتوي على كثافة كلمة رئيسية أقل من 1٪.</span></li>';
+                }
+            } else {
+                seo_anlassis += '<li class="seomessage_item seoerror"><span>لم يتم العثور على أي عنوان فرعي في المقال.</span></li>';
             }
-            $fix= isset($case['fix']) ? $case['fix'] : '';
-            $query = "SELECT count(*) as count FROM `Spider_seo` WHERE `id_page` = '".$id_page."' AND `title` LIKE '".$title."'";
-            $count = $this->DB->get_results($query)[0]->count;
-            if($count >0){
-                $info  = ['id_page'=>$id_page,'title'=>$title,'category'=>$category,'priority'=>$priority,'description'=>$description,'tooltip'=>$tooltip,'status'=>$status,'message'=>$message,'data'=>$data,'fix'=>$fix];
-                $resultD = $this->DB->update('Spider_seo',$info,['id_page'=>$id_page,'title'=>$title]);
-            }else{
-                $resultD = $this->DB->insert('Spider_seo',['id_page'=>$id_page,'title'=>$title,'category'=>$category,'priority'=>$priority,'description'=>$description,'tooltip'=>$tooltip,'status'=>$status,'message'=>$message,'data'=>$data,'fix'=>$fix]);
+            /* Analyze article structure */
+            var paragraphs = $('.fr-element p');
+            var headings = $('.fr-element h1, .fr-element h2, .fr-element h3, .fr-element h4, .fr-element h5, .fr-element h6');
+            var lists = $('.fr-element ul');
+            var images = $('.fr-element img');
+            var sentencesCount = countSentences(paragraphs);
+            var paragraphsCount = paragraphs.length;
+            var headingsCount = headings.length;
+            var listsCount = lists.length;
+            var imagesCount = images.length;
+            var averageSentencesPerParagraph = Math.floor(sentencesCount / paragraphsCount);
+            var headingsDensity = Math.floor(headingsCount / paragraphsCount * 100);
+            var listsDensity = Math.floor(listsCount / paragraphsCount * 100);
+            if (averageSentencesPerParagraph <= 2) {
+                seo_anlassis += '<li class="seomessage_item seoerror"><span>النص يحتوي على متوسط أقل من 2 جملة لكل فقرة، قد يؤثر هذا على متانة هيكلة المقال.</span></li>';
+            } else {
+                seo_anlassis += '<li class="seomessage_item seoGood"><span>متوسط الجمل لكل فقرة يبدو جيداً. يوجد متوسط ' + averageSentencesPerParagraph + ' جمل لكل فقرة.</span></li>';
             }
-
+            if (headingsDensity < 10) {
+                seo_anlassis += '<li class="seomessage_item seoerror"><span>النص يحتوي على عدد قليل جداً من العناوين، قد يؤثر هذا على متانة هيكلة المقال. يوجد ' + headingsCount + ' عنوان فقط (' + headingsDensity + '%).</span></li>';
+            } else if (headingsDensity >= 10 && headingsDensity <= 20) {
+                seo_anlassis += '<li class="seomessage_item seoGood"><span>عدد العناوين في المقال يبدو مناسباً. يوجد ' + headingsCount + ' عنوان (' + headingsDensity + '%).</span></li>';
+            } else {
+                seo_anlassis += '<li class="seomessage_item seoerror"><span>النص يحتوي على عدد كبير من العناوين، قد يؤثر هذا على متانة هيكلة المقال. يوجد ' + headingsCount + ' عنوان (' + headingsDensity + '%).</span></li>';
+            }
+            /**/
+            var words = $('.fr-element').text().trim().split(/\s+/);
+            var wordCount = words.length;
+            var sentences = $('.fr-element').text().trim().split(/[\.\?!]/g);
+            var sentencesCount = sentences.length;
+            var readingEaseScore = Math.round(206.835 - (1.015 * (wordCount / sentencesCount)) - (84.6 * (countSyllables(words) / wordCount)));
+            var readingEaseMessage = "";
+            if (readingEaseScore >= 90) {
+                readingEaseMessage = "سهولة قراءة المقال جيدة للغاية.";
+            } else if (readingEaseScore >= 80) {
+                readingEaseMessage = "سهولة قراءة المقال جيدة.";
+            } else if (readingEaseScore >= 70) {
+                readingEaseMessage = "سهولة قراءة المقال متوسطة.";
+            } else if (readingEaseScore >= 60) {
+                readingEaseMessage = "سهولة قراءة المقال قليلة.";
+            } else if (readingEaseScore >= 50) {
+                readingEaseMessage = "سهولة قراءة المقال ضعيفة.";
+            } else {
+                readingEaseMessage = "سهولة قراءة المقال جداً ضعيفة.";
+            }
+            var readingTime = Math.round(wordCount / 200);
+            var readingTimeMessage = "يستغرق قراءة المقال " + readingTime + " دقيقة.";
+            $('.SeoBasecs').html(seo_anlassis);
+            var readingTimeMessage_appended = '';
+            readingTimeMessage_appended += readingTimeMessage;
+            readingTimeMessage_appended += readingEaseMessage;
+            var rer = '<div class="readingEaseMessage">' + readingTimeMessage_appended + '</div>';
+            if ($('.readingEaseMessage').length <= 0) {
+                $('.seo_score-list_status').before(rer);
+            }
+            progress_scores_count = $('.seoGood').length;
+            progress_scores_count_error = $('.seoerror').length;
+            progress_scores_count_warning = $('.seowarning').length;
+            progress_scores_max = $('.seomessage_item').length;
+            progress_scores = (progress_scores_count / progress_scores_max) * 100;
+            progress_scores = Math.floor(progress_scores);
+            rangeColor = 'red';
+            if (progress_scores >= 50 && progress_scores < 90) {
+                rangeColor = 'orange';
+            } else if (progress_scores >= 90) {
+                rangeColor = 'green';
+            }
+            progress = '';
+            var processDiv = '<div class="SeoBasecs"></div>';
+            $('.SeoBasecs').prepend(progress);
+            $('.seo_score-list_status-good em').html(progress_scores_count);
+            $('.seo_score-list_status-error em').html(progress_scores_count_error);
+            $('.seo_score-list_status-warning em').html(progress_scores_count_warning);
+            Post_structure.seoscore = progress_scores;
+            gauge.update(progress_scores);
         }
     }
-}
-//print_r(file_get_contents('https://rankmath.com/analyze/v2/json/?u=wpar.net'));
-
- //print_r(file_get_contents("https://trends.google.com/trends/api/widgetdata/relatedsearches?hl=ar&tz=-120&req=%7B%22restriction%22:%7B%22geo%22:%7B%7D,%22time%22:%222022-11-22+2022-12-22%22,%22originalTimeRangeForExploreUrl%22:%22today+1-m%22,%22complexKeywordsRestriction%22:%7B%22keyword%22:%5B%7B%22type%22:%22BROAD%22,%22value%22:%22%D8%B4%D8%B1%D8%A8+%D8%A7%D9%84%D9%85%D8%A7%D8%A1%22%7D%5D%7D%7D,%22keywordType%22:%22QUERY%22,%22metric%22:%5B%22TOP%22,%22RISING%22%5D,%22trendinessSettings%22:%7B%22compareTime%22:%222022-10-22+2022-11-21%22%7D,%22requestOptions%22:%7B%22property%22:%22%22,%22backend%22:%22IZG%22,%22category%22:0%7D,%22language%22:%22ar%22,%22userCountryCode%22:%22EG%22,%22userConfig%22:%7B%22userType%22:%22USER_TYPE_LEGIT_USER%22%7D%7D&token=APP6_UEAAAAAY6W9KCn72R6Y6LDBtyFQ6M81bZ2nG-xy"));
-
-
-
- 
